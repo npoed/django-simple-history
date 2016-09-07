@@ -110,8 +110,8 @@ class HistoricalRecords(object):
                                          weak=False)
         models.signals.post_delete.connect(self.post_delete, sender=sender,
                                            weak=False)
-        models.signals.post_save.connect(self.m2m_changed, sender=sender,
-                                         weak=False)
+        models.signals.m2m_changed.connect(self.m2m_changed, sender=sender,
+                                           weak=False)
 
         descriptor = HistoryDescriptor(history_model)
         setattr(sender, self.manager_name, descriptor)
@@ -254,10 +254,10 @@ class HistoricalRecords(object):
         if not created and hasattr(instance, 'skip_history_when_saving'):
             return
         if not kwargs.get('raw', False):
-            self.create_historical_record(instance, created and '+' or '~', now())
+            self.create_historical_record(instance, created and '+' or '~')
 
     def post_delete(self, instance, **kwargs):
-        self.create_historical_record(instance, '-', now())
+        self.create_historical_record(instance, '-')
 
     def m2m_changed(self, action, instance, sender, **kwargs):
         source_field_name, target_field_name = None, None
@@ -270,19 +270,18 @@ class HistoricalRecords(object):
         items = sender.objects.filter(**{source_field_name: instance})
         if kwargs['pk_set']:
             items = items.filter(**{target_field_name + '__id__in': kwargs['pk_set']})
-        time = now()
         for item in items:
             if action == 'post_add':
                 if hasattr(item, 'skip_history_when_saving'):
                     return
-                self.create_historical_record(item, '+', time)
+                self.create_historical_record(item, '+')
             elif action == 'pre_remove':
-                self.create_historical_record(item, '-', time)
+                self.create_historical_record(item, '-')
             elif action == 'pre_clear':
-                self.create_historical_record(item, '-', time)
+                self.create_historical_record(item, '-')
 
-    def create_historical_record(self, instance, history_type, time):
-        history_date = getattr(instance, '_history_date', time)
+    def create_historical_record(self, instance, history_type):
+        history_date = getattr(instance, '_history_date', now())
         history_user = self.get_history_user(instance)
         manager = getattr(instance, self.manager_name)
         attrs = {}
