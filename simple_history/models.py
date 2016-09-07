@@ -110,8 +110,8 @@ class HistoricalRecords(object):
                                          weak=False)
         models.signals.post_delete.connect(self.post_delete, sender=sender,
                                            weak=False)
-        models.signals.m2m_changed.connect(self.m2m_changed, sender=sender,
-                                           weak=False)
+        models.signals.post_save.connect(self.m2m_changed, sender=sender,
+                                         weak=False)
 
         descriptor = HistoryDescriptor(history_model)
         setattr(sender, self.manager_name, descriptor)
