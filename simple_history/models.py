@@ -37,12 +37,14 @@ class HistoricalRecords(object):
     thread = threading.local()
 
     def __init__(self, verbose_name=None, bases=(models.Model,),
-                 user_related_name='+', table_name=None, inherit=False, m2m_fields=None):
+                 user_related_name='+', table_name=None, inherit=False,
+                 m2m_fields=None, is_m2m=False):
         self.user_set_verbose_name = verbose_name
         self.user_related_name = user_related_name
         self.table_name = table_name
         self.inherit = inherit
         self.m2m_fields = m2m_fields
+        self.is_m2m = is_m2m
         try:
             if isinstance(bases, six.string_types):
                 raise TypeError
@@ -83,7 +85,7 @@ class HistoricalRecords(object):
             field = getattr(cls, field_name).field
             assert isinstance(field, models.fields.related.ManyToManyField), ('%s must be a ManyToManyField' % field_name)
             if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]):
-                field.rel.through.history = HistoricalRecords()
+                field.rel.through.history = HistoricalRecords(is_m2m=True)
                 register(field.rel.through)
 
     def finalize(self, sender, **kwargs):
@@ -138,6 +140,8 @@ class HistoricalRecords(object):
             attrs['__module__'] = models_module
 
         fields = self.copy_fields(model)
+        if self.is_m2m:
+            pass
         attrs.update(fields)
         attrs.update(self.get_extra_fields(model, fields))
         # type in python2 wants str as a first argument
