@@ -15,6 +15,8 @@ from django.utils.timezone import now
 from django.utils.translation import string_concat
 from simple_history import register
 
+from django.db.models.loading import get_model
+
 try:
     from django.apps import apps
 except ImportError:  # Django < 1.7
@@ -37,14 +39,11 @@ class HistoricalRecords(object):
     thread = threading.local()
 
     def __init__(self, verbose_name=None, bases=(models.Model,),
-                 user_related_name='+', table_name=None, inherit=False,
-                 m2m_fields=None, is_m2m=False):
+                 user_related_name='+', table_name=None, inherit=False):
         self.user_set_verbose_name = verbose_name
         self.user_related_name = user_related_name
         self.table_name = table_name
         self.inherit = inherit
-        self.m2m_fields = m2m_fields
-        self.is_m2m = is_m2m
         try:
             if isinstance(bases, six.string_types):
                 raise TypeError
@@ -77,7 +76,7 @@ class HistoricalRecords(object):
                 save_without_historical_record)
 
     def setup_m2m_history(self, cls):
-        m2m_history_fields = self.m2m_fields
+        m2m_history_fields = [m2m.name for m2m in cls._meta.many_to_many]
         if m2m_history_fields:
             assert (isinstance(m2m_history_fields, list) or isinstance(m2m_history_fields,
                                                                        tuple)), 'm2m_history_fields must be a list or tuple'
@@ -85,7 +84,7 @@ class HistoricalRecords(object):
             field = getattr(cls, field_name).field
             assert isinstance(field, models.fields.related.ManyToManyField), ('%s must be a ManyToManyField' % field_name)
             if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]):
-                field.rel.through.history = HistoricalRecords(is_m2m=True)
+                # field.rel.through.history = HistoricalRecords(is_m2m=True)
                 register(field.rel.through)
 
     def finalize(self, sender, **kwargs):
@@ -140,8 +139,7 @@ class HistoricalRecords(object):
             attrs['__module__'] = models_module
 
         fields = self.copy_fields(model)
-        if self.is_m2m:
-            pass
+        # hist_model = get_model(self, model._meta.app_label, "Historical{}".format(model._meta.object_name))
         attrs.update(fields)
         attrs.update(self.get_extra_fields(model, fields))
         # type in python2 wants str as a first argument
