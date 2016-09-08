@@ -77,15 +77,26 @@ class HistoricalRecords(object):
 
     def setup_m2m_history(self, cls):
         m2m_history_fields = [m2m.name for m2m in cls._meta.many_to_many]
+        for attr in dir(cls):
+            if hasattr(cls, attr) and hasattr(getattr(cls, attr), 'related') and getattr(cls, attr).related.many_to_many:
+                m2m_history_fields.append(attr)
         if m2m_history_fields:
             assert (isinstance(m2m_history_fields, list) or isinstance(m2m_history_fields,
                                                                        tuple)), 'm2m_history_fields must be a list or tuple'
         for field_name in m2m_history_fields:
-            field = getattr(cls, field_name).field
+            if hasattr(getattr(cls, field_name), 'field'):
+                field = getattr(cls, field_name).field
+            else:
+                field = getattr(cls, field_name).related.field
             assert isinstance(field, models.fields.related.ManyToManyField), ('%s must be a ManyToManyField' % field_name)
-            if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]):
-                # field.rel.through.history = HistoricalRecords(is_m2m=True)
-                register(field.rel.through)
+            if field.rel.related_model._meta.db_table in registered_models \
+                and field.rel.to._meta.db_table in registered_models:
+                if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]) and \
+                    not field.rel.through._meta.db_table in registered_models:
+                    field.rel.through.history = HistoricalRecords()
+                    history_model = field.rel.through
+                    self.add_history_foreign_keys(field, history_model)
+                    register(history_model)
 
     def finalize(self, sender, **kwargs):
         try:
@@ -281,6 +292,10 @@ class HistoricalRecords(object):
                 self.create_historical_record(item, '-')
             elif action == 'pre_clear':
                 self.create_historical_record(item, '-')
+
+    def add_history_foreign_keys(self, field, history_model):
+        model_from = None
+        pass
 
     def create_historical_record(self, instance, history_type):
         history_date = getattr(instance, '_history_date', now())
