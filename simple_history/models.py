@@ -33,17 +33,20 @@ from . import exceptions
 from .manager import HistoryDescriptor
 
 registered_models = {}
+registered_historical_models = {}
 
 
 class HistoricalRecords(object):
     thread = threading.local()
 
     def __init__(self, verbose_name=None, bases=(models.Model,),
-                 user_related_name='+', table_name=None, inherit=False):
+                 user_related_name='+', table_name=None, inherit=False,
+                 is_m2m=False):
         self.user_set_verbose_name = verbose_name
         self.user_related_name = user_related_name
         self.table_name = table_name
         self.inherit = inherit
+        self.is_m2m = is_m2m
         try:
             if isinstance(bases, six.string_types):
                 raise TypeError
@@ -93,10 +96,8 @@ class HistoricalRecords(object):
                 and field.rel.to._meta.db_table in registered_models:
                 if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]) and \
                     not field.rel.through._meta.db_table in registered_models:
-                    field.rel.through.history = HistoricalRecords()
-                    history_model = field.rel.through
-                    self.add_history_foreign_keys(field, history_model)
-                    register(history_model)
+                    # field.rel.through.history = HistoricalRecords(is_m2m=True)
+                    register(field.rel.through, is_m2m=True)
 
     def finalize(self, sender, **kwargs):
         try:
@@ -159,8 +160,9 @@ class HistoricalRecords(object):
             attrs['Meta'].db_table = self.table_name
         name = 'Historical%s' % model._meta.object_name
         registered_models[model._meta.db_table] = model
-        return python_2_unicode_compatible(
-            type(str(name), self.bases, attrs))
+        historical_model = python_2_unicode_compatible(type(str(name), self.bases, attrs))
+        registered_historical_models[model.__name__] = historical_model
+        return historical_model
 
     def copy_fields(self, model):
         """
@@ -227,7 +229,7 @@ class HistoricalRecords(object):
                 for field in fields.values()
             })
 
-        return {
+        extra_fields = {
             'history_id': models.AutoField(primary_key=True),
             'history_date': models.DateTimeField(),
             'history_user': models.ForeignKey(
@@ -245,6 +247,14 @@ class HistoricalRecords(object):
             '__str__': lambda self: '%s as of %s' % (self.history_object,
                                                      self.history_date)
         }
+        if self.is_m2m:
+            for field in model._meta.fields:
+                if isinstance(field, models.ForeignKey) and field.rel.to.__name__ in registered_historical_models:
+                    extra_fields.update({
+                        'history_{}'.format(field.rel.to.__name__): models.ForeignKey(registered_historical_models[field.rel.to.__name__],
+                                                                                      null=True)
+                    })
+        return extra_fields
 
     def get_meta_options(self, model):
         """
@@ -292,10 +302,6 @@ class HistoricalRecords(object):
                 self.create_historical_record(item, '-')
             elif action == 'pre_clear':
                 self.create_historical_record(item, '-')
-
-    def add_history_foreign_keys(self, field, history_model):
-        model_from = None
-        pass
 
     def create_historical_record(self, instance, history_type):
         history_date = getattr(instance, '_history_date', now())
