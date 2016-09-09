@@ -310,6 +310,15 @@ class HistoricalRecords(object):
         attrs = {}
         for field in instance._meta.fields:
             attrs[field.attname] = getattr(instance, field.attname)
+        if self.is_m2m:
+            for field in instance._meta.fields:
+                if isinstance(field, models.ForeignKey):
+                    real_model_name = field.rel.to.__name__
+                    if real_model_name not in registered_historical_models:
+                        break
+                    real_record_id = getattr(instance, field.attname)
+                    history_record = registered_historical_models[real_model_name].objects.filter(id=real_record_id).latest('history_date')
+                    attrs['history_{}'.format(real_model_name)] = history_record
         manager.create(history_date=history_date, history_type=history_type,
                        history_user=history_user, **attrs)
 
