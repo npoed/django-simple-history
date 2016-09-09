@@ -14,8 +14,7 @@ from django.utils.encoding import smart_text
 from django.utils.timezone import now
 from django.utils.translation import string_concat
 from simple_history import register
-
-from django.db.models.loading import get_model
+from django.db.models.query import Q
 
 try:
     from django.apps import apps
@@ -75,13 +74,15 @@ class HistoricalRecords(object):
             finally:
                 del self.skip_history_when_saving
             return ret
+
         setattr(cls, 'save_without_historical_record',
                 save_without_historical_record)
 
     def setup_m2m_history(self, cls):
         m2m_history_fields = [m2m.name for m2m in cls._meta.many_to_many]
         for attr in dir(cls):
-            if hasattr(cls, attr) and hasattr(getattr(cls, attr), 'related') and getattr(cls, attr).related.many_to_many:
+            if hasattr(cls, attr) and hasattr(getattr(cls, attr), 'related') and getattr(cls,
+                                                                                         attr).related.many_to_many:
                 m2m_history_fields.append(attr)
         if m2m_history_fields:
             assert (isinstance(m2m_history_fields, list) or isinstance(m2m_history_fields,
@@ -91,12 +92,12 @@ class HistoricalRecords(object):
                 field = getattr(cls, field_name).field
             else:
                 field = getattr(cls, field_name).related.field
-            assert isinstance(field, models.fields.related.ManyToManyField), ('%s must be a ManyToManyField' % field_name)
+            assert isinstance(field, models.fields.related.ManyToManyField), (
+            '%s must be a ManyToManyField' % field_name)
             if field.rel.related_model._meta.db_table in registered_models \
                 and field.rel.to._meta.db_table in registered_models:
                 if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]) and \
                     not field.rel.through._meta.db_table in registered_models:
-                    # field.rel.through.history = HistoricalRecords(is_m2m=True)
                     register(field.rel.through, is_m2m=True)
 
     def finalize(self, sender, **kwargs):
@@ -227,7 +228,7 @@ class HistoricalRecords(object):
             return model(**{
                 field.attname: getattr(self, field.attname)
                 for field in fields.values()
-            })
+                })
 
         extra_fields = {
             'history_id': models.AutoField(primary_key=True),
@@ -251,8 +252,9 @@ class HistoricalRecords(object):
             for field in model._meta.fields:
                 if isinstance(field, models.ForeignKey) and field.rel.to.__name__ in registered_historical_models:
                     extra_fields.update({
-                        'history_{}'.format(field.rel.to.__name__): models.ForeignKey(registered_historical_models[field.rel.to.__name__],
-                                                                                      null=True)
+                        'history_{}'.format(field.rel.to.__name__): models.ForeignKey(
+                            registered_historical_models[field.rel.to.__name__],
+                            null=True)
                     })
         return extra_fields
 
@@ -280,7 +282,10 @@ class HistoricalRecords(object):
             self.create_historical_record(instance, created and '+' or '~')
 
     def post_delete(self, instance, **kwargs):
-        self.create_historical_record(instance, '-')
+        if self.is_m2m:
+            self.remove_historical_record(instance)
+        else:
+            self.create_historical_record(instance, '-')
 
     def m2m_changed(self, action, instance, sender, **kwargs):
         source_field_name, target_field_name = None, None
@@ -298,10 +303,8 @@ class HistoricalRecords(object):
                 if hasattr(item, 'skip_history_when_saving'):
                     return
                 self.create_historical_record(item, '+')
-            elif action == 'pre_remove':
-                self.create_historical_record(item, '-')
-            elif action == 'pre_clear':
-                self.create_historical_record(item, '-')
+            elif action in ['pre_remove', 'pre_clear']:
+                self.remove_historical_record(item)
 
     def create_historical_record(self, instance, history_type):
         history_date = getattr(instance, '_history_date', now())
@@ -317,7 +320,8 @@ class HistoricalRecords(object):
                     if real_model_name not in registered_historical_models:
                         break
                     real_record_id = getattr(instance, field.attname)
-                    history_record = registered_historical_models[real_model_name].objects.filter(id=real_record_id).latest('history_date')
+                    history_record = registered_historical_models[real_model_name].objects.filter(
+                        id=real_record_id).latest('history_date')
                     attrs['history_{}'.format(real_model_name)] = history_record
         manager.create(history_date=history_date, history_type=history_type,
                        history_user=history_user, **attrs)
@@ -333,6 +337,21 @@ class HistoricalRecords(object):
                 return None
             except AttributeError:
                 return None
+
+    def remove_historical_record(self, item):
+        query_list = []
+        for field in item._meta.fields:
+            if isinstance(field, models.ForeignKey):
+                real_model_name = field.rel.to.__name__
+                if real_model_name not in registered_historical_models:
+                    return
+                historical_rel_instance = registered_historical_models[real_model_name].objects.filter(
+                    id=getattr(item, field.attname)).latest('history_date')
+                query_list.append(Q(**{'history_{}'.format(real_model_name): historical_rel_instance}))
+        query = reduce(lambda x, y: x & y, query_list, Q())
+        res_query = registered_historical_models[item._meta.model.__name__].objects.filter(query)
+        if res_query.exists():
+            res_query.delete()
 
 
 def transform_field(field):
