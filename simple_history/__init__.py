@@ -33,3 +33,11 @@ def register(
     records.finalize(model)
     models.registered_models[model._meta.db_table] = model
     records.setup_m2m_history(model)
+
+
+def register_model_list(model_list):
+    from . import models
+
+    models.future_register_models = model_list
+    for mdl in model_list:
+        register(mdl)

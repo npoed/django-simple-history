@@ -1,3 +1,4 @@
+# coding: utf-8
 from __future__ import unicode_literals
 
 import copy
@@ -32,6 +33,7 @@ from . import exceptions
 from .manager import HistoryDescriptor
 
 registered_models = {}
+future_register_models = []
 registered_historical_models = {}
 
 
@@ -152,7 +154,6 @@ class HistoricalRecords(object):
             attrs['__module__'] = models_module
 
         fields = self.copy_fields(model)
-        # hist_model = get_model(self, model._meta.app_label, "Historical{}".format(model._meta.object_name))
         attrs.update(fields)
         attrs.update(self.get_extra_fields(model, fields))
         # type in python2 wants str as a first argument
@@ -162,6 +163,7 @@ class HistoricalRecords(object):
         name = 'Historical%s' % model._meta.object_name
         registered_models[model._meta.db_table] = model
         historical_model = python_2_unicode_compatible(type(str(name), self.bases, attrs))
+        historical_model.is_m2m = self.is_m2m
         registered_historical_models[model.__name__] = historical_model
         return historical_model
 
@@ -256,6 +258,15 @@ class HistoricalRecords(object):
                             registered_historical_models[field.rel.to.__name__],
                             null=True)
                     })
+        else:
+            for fld in model._meta.fields:
+                if isinstance(fld, models.ForeignKey) and fld.rel.model in future_register_models:
+                    extra_fields.update({
+                        'history_{}'.format(fld.rel.model.__name__): models.ForeignKey(
+                            u"{}.Historical{}".format(fld.rel.model._meta.app_label, fld.rel.model.__name__),
+                            null=True)
+                    })
+
         return extra_fields
 
     def get_meta_options(self, model):
@@ -282,10 +293,11 @@ class HistoricalRecords(object):
             self.create_historical_record(instance, created and '+' or '~')
 
     def post_delete(self, instance, **kwargs):
-        if self.is_m2m:
-            self.remove_historical_record(instance)
-        else:
-            self.create_historical_record(instance, '-')
+        # При удалении не будет создаваться historical_record с типом "-"
+        # if self.is_m2m:
+        self.remove_historical_record(instance)
+        # else:
+        #     self.create_historical_record(instance, '-')
 
     def m2m_changed(self, action, instance, sender, **kwargs):
         source_field_name, target_field_name = None, None
@@ -313,16 +325,14 @@ class HistoricalRecords(object):
         attrs = {}
         for field in instance._meta.fields:
             attrs[field.attname] = getattr(instance, field.attname)
-        if self.is_m2m:
-            for field in instance._meta.fields:
-                if isinstance(field, models.ForeignKey):
-                    real_model_name = field.rel.to.__name__
-                    if real_model_name not in registered_historical_models:
-                        break
-                    real_record_id = getattr(instance, field.attname)
-                    history_record = registered_historical_models[real_model_name].objects.filter(
-                        id=real_record_id).latest('history_date')
-                    attrs['history_{}'.format(real_model_name)] = history_record
+            if isinstance(field, models.ForeignKey):
+                real_model_name = field.rel.to.__name__
+                if real_model_name not in registered_historical_models:
+                    break
+                real_record_id = getattr(instance, field.attname)
+                history_record = registered_historical_models[real_model_name].objects.filter(
+                    id=real_record_id).latest('history_date')
+                attrs['history_{}'.format(real_model_name)] = history_record
         manager.create(history_date=history_date, history_type=history_type,
                        history_user=history_user, **attrs)
 
