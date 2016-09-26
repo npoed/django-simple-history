@@ -122,6 +122,8 @@ class HistoricalRecords(object):
 
         # The HistoricalRecords object will be discarded,
         # so the signal handlers can't use weak references.
+        models.signals.pre_save.connect(self.pre_save, sender=sender,
+                                        weak=False)
         models.signals.post_save.connect(self.post_save, sender=sender,
                                          weak=False)
         models.signals.post_delete.connect(self.post_delete, sender=sender,
@@ -256,7 +258,7 @@ class HistoricalRecords(object):
                     extra_fields.update({
                         'history_{}'.format(field.rel.to.__name__): models.ForeignKey(
                             registered_historical_models[field.rel.to.__name__],
-                            null=True)
+                            null=True, default=None)
                     })
         else:
             for fld in model._meta.fields:
@@ -264,7 +266,7 @@ class HistoricalRecords(object):
                     extra_fields.update({
                         'history_{}'.format(fld.rel.model.__name__): models.ForeignKey(
                             u"{}.Historical{}".format(fld.rel.model._meta.app_label, fld.rel.model.__name__),
-                            null=True)
+                            null=True, default=None)
                     })
 
         return extra_fields
@@ -291,6 +293,12 @@ class HistoricalRecords(object):
             return
         if not kwargs.get('raw', False):
             self.create_historical_record(instance, created and '+' or '~')
+
+    def pre_save(self, instance, **kwargs):
+        if not self.is_m2m and instance.pk is not None and \
+            not registered_historical_models[instance._meta.model.__name__].objects.filter(id=instance.id).exists() and \
+                not kwargs.get('raw', False):
+            self.create_historical_record(instance._meta.model.objects.get(pk=instance.pk), '+')
 
     def post_delete(self, instance, **kwargs):
         # При удалении не будет создаваться historical_record с типом "-"
@@ -330,9 +338,10 @@ class HistoricalRecords(object):
                 if real_model_name not in registered_historical_models:
                     break
                 real_record_id = getattr(instance, field.attname)
-                history_record = registered_historical_models[real_model_name].objects.filter(
-                    id=real_record_id).latest('history_date')
-                attrs['history_{}'.format(real_model_name)] = history_record
+                history_records = registered_historical_models[real_model_name].objects.filter(
+                    id=real_record_id)
+                if history_records.exists():
+                    attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
         manager.create(history_date=history_date, history_type=history_type,
                        history_user=history_user, **attrs)
 
@@ -355,9 +364,11 @@ class HistoricalRecords(object):
                 real_model_name = field.rel.to.__name__
                 if real_model_name not in registered_historical_models:
                     return
-                historical_rel_instance = registered_historical_models[real_model_name].objects.filter(
-                    id=getattr(item, field.attname)).latest('history_date')
-                query_list.append(Q(**{'history_{}'.format(real_model_name): historical_rel_instance}))
+                historical_rel_instances = registered_historical_models[real_model_name].objects.filter(
+                    id=getattr(item, field.attname))
+                if historical_rel_instances.exists():
+                    query_list.append(
+                        Q(**{'history_{}'.format(real_model_name): historical_rel_instances.latest('history_date')}))
         query = reduce(lambda x, y: x & y, query_list, Q())
         res_query = registered_historical_models[item._meta.model.__name__].objects.filter(query)
         if res_query.exists():
