@@ -336,7 +336,7 @@ class HistoricalRecords(object):
             if isinstance(field, models.ForeignKey):
                 real_model_name = field.rel.to.__name__
                 if real_model_name not in registered_historical_models:
-                    break
+                    continue
                 real_record_id = getattr(instance, field.attname)
                 history_records = registered_historical_models[real_model_name].objects.filter(
                     id=real_record_id)
@@ -344,6 +344,17 @@ class HistoricalRecords(object):
                     attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
         manager.create(history_date=history_date, history_type=history_type,
                        history_user=history_user, **attrs)
+        if history_type == '+':
+            for f_key in instance._meta.related_objects:
+                    real_model_name = f_key.related_model.__name__
+                    if real_model_name not in registered_historical_models:
+                        continue
+                    # Выбираем объекты, ссылающиеся на данную модель
+                    q_dict = {f_key.field.name: instance}
+                    query = f_key.related_model.objects.all().filter(**q_dict)
+                    for q in query:
+                        if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
+                            self.create_historical_record(q, '+')
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
