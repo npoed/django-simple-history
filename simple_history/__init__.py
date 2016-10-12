@@ -33,6 +33,7 @@ def register(
     records.finalize(model)
     models.registered_models[model._meta.db_table] = model
     records.setup_m2m_history(model)
+    records.create_fake_m2m(model)
 
 
 def register_model_list(model_list):

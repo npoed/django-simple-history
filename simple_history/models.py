@@ -35,6 +35,7 @@ from .manager import HistoryDescriptor
 registered_models = {}
 future_register_models = []
 registered_historical_models = {}
+fake_m2m_models = {}
 
 
 class HistoricalRecords(object):
@@ -363,6 +364,14 @@ class HistoricalRecords(object):
                     for q in getattr(instance, m2m.name).all():
                         if not registered_historical_models[m2m.related_model.__name__].objects.filter(id=q.id).exists():
                             self.create_historical_record(q, '~')
+
+    def create_fake_m2m(self, model):
+        if not self.is_m2m:
+            for attr in dir(model):
+                if hasattr(model, attr) and hasattr(getattr(model, attr), 'field') and \
+                        getattr(model, attr).field.is_relation and \
+                        getattr(model, attr).field.rel.model.__name__ in registered_historical_models:
+                    print model.__name__ + ' ' + attr
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
