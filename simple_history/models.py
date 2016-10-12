@@ -327,6 +327,12 @@ class HistoricalRecords(object):
                 self.remove_historical_record(item)
 
     def create_historical_record(self, instance, history_type):
+        if registered_historical_models[instance._meta.model.__name__].is_m2m:
+            for field in instance._meta.fields:
+                rel_model_name = field.rel.to.__name__
+                if isinstance(field, models.ForeignKey) and rel_model_name in registered_historical_models:
+                    if not registered_historical_models[rel_model_name].objects.all().filter(id=getattr(instance, field.name).id).exists():
+                        self.create_historical_record(getattr(instance, field.name), '+')
         history_date = getattr(instance, '_history_date', now())
         history_user = self.get_history_user(instance)
         manager = getattr(instance, self.manager_name)
@@ -338,12 +344,10 @@ class HistoricalRecords(object):
                 if real_model_name not in registered_historical_models:
                     continue
                 real_record_id = getattr(instance, field.attname)
-                history_records = registered_historical_models[real_model_name].objects.filter(
-                    id=real_record_id)
+                history_records = registered_historical_models[real_model_name].objects.filter(id=real_record_id)
                 if history_records.exists():
                     attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
-        manager.create(history_date=history_date, history_type=history_type,
-                       history_user=history_user, **attrs)
+        manager.create(history_date=history_date, history_type=history_type, history_user=history_user, **attrs)
         if history_type == '+':
             for f_key in instance._meta.related_objects:
                     real_model_name = f_key.related_model.__name__
