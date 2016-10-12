@@ -329,9 +329,8 @@ class HistoricalRecords(object):
     def create_historical_record(self, instance, history_type):
         if registered_historical_models[instance._meta.model.__name__].is_m2m:
             for field in instance._meta.fields:
-                rel_model_name = field.rel.to.__name__
-                if isinstance(field, models.ForeignKey) and rel_model_name in registered_historical_models:
-                    if not registered_historical_models[rel_model_name].objects.all().filter(id=getattr(instance, field.name).id).exists():
+                if isinstance(field, models.ForeignKey) and field.rel.to.__name__ in registered_historical_models:
+                    if not registered_historical_models[field.rel.to.__name__].objects.all().filter(id=getattr(instance, field.name).id).exists():
                         self.create_historical_record(getattr(instance, field.name), '+')
         history_date = getattr(instance, '_history_date', now())
         history_user = self.get_history_user(instance)
