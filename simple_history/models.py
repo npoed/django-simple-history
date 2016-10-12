@@ -331,7 +331,7 @@ class HistoricalRecords(object):
             for field in instance._meta.fields:
                 if isinstance(field, models.ForeignKey) and field.rel.to.__name__ in registered_historical_models:
                     if not registered_historical_models[field.rel.to.__name__].objects.all().filter(id=getattr(instance, field.name).id).exists():
-                        self.create_historical_record(getattr(instance, field.name), '+')
+                        self.create_historical_record(getattr(instance, field.name), '~')
         history_date = getattr(instance, '_history_date', now())
         history_user = self.get_history_user(instance)
         manager = getattr(instance, self.manager_name)
@@ -357,7 +357,12 @@ class HistoricalRecords(object):
                     query = f_key.related_model.objects.all().filter(**q_dict)
                     for q in query:
                         if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
-                            self.create_historical_record(q, '+')
+                            self.create_historical_record(q, '~')
+            for m2m in instance._meta.many_to_many:
+                if m2m.related_model.__name__ in registered_historical_models:
+                    for q in getattr(instance, m2m.name).all():
+                        if not registered_historical_models[m2m.related_model.__name__].objects.filter(id=q.id).exists():
+                            self.create_historical_record(q, '~')
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
