@@ -261,14 +261,14 @@ class HistoricalRecords(object):
                             registered_historical_models[field.rel.to.__name__],
                             null=True, default=None)
                     })
-        else:
-            for fld in model._meta.fields:
-                if isinstance(fld, models.ForeignKey) and fld.rel.model in future_register_models:
-                    extra_fields.update({
-                        'history_{}'.format(fld.rel.model.__name__): models.ForeignKey(
-                            u"{}.Historical{}".format(fld.rel.model._meta.app_label, fld.rel.model.__name__),
-                            null=True, default=None)
-                    })
+        # else:
+        #     for fld in model._meta.fields:
+        #         if isinstance(fld, models.ForeignKey) and fld.rel.model in future_register_models:
+        #             extra_fields.update({
+        #                 'history_{}'.format(fld.rel.model.__name__): models.ForeignKey(
+        #                     u"{}.Historical{}".format(fld.rel.model._meta.app_label, fld.rel.model.__name__),
+        #                     null=True, default=None)
+        #             })
 
         return extra_fields
 
@@ -371,7 +371,24 @@ class HistoricalRecords(object):
                 if hasattr(model, attr) and hasattr(getattr(model, attr), 'field') and \
                         getattr(model, attr).field.is_relation and \
                         getattr(model, attr).field.rel.model.__name__ in registered_historical_models:
-                    print model.__name__ + ' ' + attr
+                    to_model = registered_historical_models[getattr(model, attr).field.rel.model.__name__]
+                elif hasattr(model, attr) and hasattr(getattr(model, attr), 'related') and \
+                        getattr(model, attr).related.is_relation and \
+                        getattr(model, attr).related.field.model.__name__ in registered_historical_models:
+                    to_model = registered_historical_models[getattr(model, attr).related.field.model.__name__]
+                else:
+                    continue
+                from_model = registered_historical_models[model.__name__]
+                attrs = {
+                    u'__module__': from_model.__module__,
+                    'history_id': models.AutoField(primary_key=True),
+                    from_model.__name__: models.ForeignKey(to=from_model),
+                    to_model.__name__: models.ForeignKey(to=to_model),
+                    '__str__': lambda self: '%s' % self.__name__
+                }
+                name = '{}_{}_fake'.format(from_model.__name__, to_model.__name__)
+                historical_model = python_2_unicode_compatible(type(str(name), self.bases, attrs))
+                fake_m2m_models[(from_model, historical_model)] = (to_model, historical_model)
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
