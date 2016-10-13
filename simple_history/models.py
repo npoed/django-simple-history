@@ -96,7 +96,7 @@ class HistoricalRecords(object):
             else:
                 field = getattr(cls, field_name).related.field
             assert isinstance(field, models.fields.related.ManyToManyField), (
-            '%s must be a ManyToManyField' % field_name)
+                '%s must be a ManyToManyField' % field_name)
             if field.rel.related_model._meta.db_table in registered_models \
                 and field.rel.to._meta.db_table in registered_models:
                 if not sum([isinstance(item, HistoricalRecords) for item in field.rel.through.__dict__.values()]) and \
@@ -298,7 +298,7 @@ class HistoricalRecords(object):
     def pre_save(self, instance, **kwargs):
         if not self.is_m2m and instance.pk is not None and \
             not registered_historical_models[instance._meta.model.__name__].objects.filter(id=instance.id).exists() and \
-                not kwargs.get('raw', False):
+            not kwargs.get('raw', False):
             self.create_historical_record(instance._meta.model.objects.get(pk=instance.pk), '+')
 
     def post_delete(self, instance, **kwargs):
@@ -331,7 +331,8 @@ class HistoricalRecords(object):
         if registered_historical_models[instance._meta.model.__name__].is_m2m:
             for field in instance._meta.fields:
                 if isinstance(field, models.ForeignKey) and field.rel.to.__name__ in registered_historical_models:
-                    if not registered_historical_models[field.rel.to.__name__].objects.all().filter(id=getattr(instance, field.name).id).exists():
+                    if not registered_historical_models[field.rel.to.__name__].objects.all().filter(
+                        id=getattr(instance, field.name).id).exists():
                         self.create_historical_record(getattr(instance, field.name), '~')
         history_date = getattr(instance, '_history_date', now())
         history_user = self.get_history_user(instance)
@@ -348,27 +349,54 @@ class HistoricalRecords(object):
                 if history_records.exists():
                     attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
 
-        # Смотрим, есть ли наша модель в fake m2m
-            for f_m2m_key, f_m2m_value in fake_m2m_models.items():
-                if f_m2m_key[0] is instance._meta.model:
-                    print 'model'
-                elif f_m2m_value[0] is instance._meta.model:
-                    print 'model'
-
         manager.create(history_date=history_date, history_type=history_type, history_user=history_user, **attrs)
 
+        # Смотрим, есть ли наша модель в fake m2m
+        for f_m2m_key, f_m2m_value in fake_m2m_models.items():
+            if f_m2m_key[0] is instance._meta.model:
+                to_inst = getattr(instance, f_m2m_key[2])
+                to_hist_inst = registered_historical_models[to_inst._meta.model.__name__].objects.filter(
+                    id=to_inst.id).latest('history_date')
+                from_hist_items = registered_historical_models[instance._meta.model.__name__].objects.filter(
+                    id=instance.id).order('-history_date')
+                if from_hist_items.count() > 1:
+                    prev_hist_item = from_hist_items[1]
+                    buf_fake_m2m_attrs = {
+                        registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_inst,
+                        registered_historical_models[instance._meta.model.__name__].__name__: prev_hist_item,
+                    }
+                    f_m2m_key[1].objects.filter(**buf_fake_m2m_attrs).delete()
+                buf_fake_m2m_attrs = {
+                    registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_inst,
+                    registered_historical_models[instance._meta.model.__name__].__name__: from_hist_items[0],
+                }
+                f_m2m_key[1](**buf_fake_m2m_attrs).save()
+
+            elif f_m2m_value[0] is instance._meta.model:
+                for from_inst in getattr(instance, f_m2m_value[2]).all():
+                    fake_m2m_model = f_m2m_value[1]
+                    from_hist_model = registered_historical_models[f_m2m_key[0].__name__]
+                    to_hist_model = registered_historical_models[f_m2m_value[0].__name__]
+                    to_hist_inst = from_hist_model.objects.filter(id=instance.id).latest('history_date')
+                    from_hist_inst = to_hist_model.objects.filter(id=from_inst.id).latest('history_date')
+                    if from_hist_inst and to_hist_inst:
+                        fake_m2m_attrs = {
+                            from_hist_model.__name__: from_hist_inst,
+                            to_hist_model.__name__: to_hist_inst,
+                        }
+                        fake_m2m_model(**fake_m2m_attrs).save()
 
         if history_type == '+':
             for f_key in instance._meta.related_objects:
-                    real_model_name = f_key.related_model.__name__
-                    if real_model_name not in registered_historical_models:
-                        continue
-                    # Выбираем объекты, ссылающиеся на данную модель
-                    q_dict = {f_key.field.name: instance}
-                    query = f_key.related_model.objects.all().filter(**q_dict)
-                    for q in query:
-                        if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
-                            self.create_historical_record(q, '~')
+                real_model_name = f_key.related_model.__name__
+                if real_model_name not in registered_historical_models:
+                    continue
+                # Выбираем объекты, ссылающиеся на данную модель
+                q_dict = {f_key.field.name: instance}
+                query = f_key.related_model.objects.all().filter(**q_dict)
+                for q in query:
+                    if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
+                        self.create_historical_record(q, '~')
             for m2m in instance._meta.many_to_many:
                 if m2m.related_model.__name__ in registered_historical_models:
                     for q in getattr(instance, m2m.name).all():
@@ -378,33 +406,42 @@ class HistoricalRecords(object):
     def create_fake_m2m(self, model):
         if not self.is_m2m:
             for attr in dir(model):
-                if hasattr(model, attr) and hasattr(getattr(model, attr), 'field') and \
-                        getattr(model, attr).field.is_relation and \
-                        not getattr(model, attr).field.many_to_many and \
-                        getattr(model, attr).field.rel.model.__name__ in registered_historical_models and \
-                        not registered_historical_models[getattr(model, attr).field.rel.model.__name__].is_m2m:
-                    to_model = getattr(model, attr).field.rel.model
-                    to_name = getattr(model, attr).field.rel.name
-                elif hasattr(model, attr) and hasattr(getattr(model, attr), 'related') and \
-                        getattr(model, attr).related.is_relation and \
-                        not getattr(model, attr).related.field.many_to_many and \
-                        getattr(model, attr).related.field.model.__name__ in registered_historical_models and \
-                        not registered_historical_models[getattr(model, attr).related.field.model.__name__].is_m2m:
-                    to_model = getattr(model, attr).related.field.model
-                    to_name = getattr(model, attr).related.field.name
+                if hasattr(model, attr) and hasattr(getattr(model, attr), 'field'):
+                    fld = getattr(model, attr).field
+                    if fld.is_relation and not fld.many_to_many and \
+                            fld.rel.model.__name__ in registered_historical_models and \
+                            not registered_historical_models[fld.rel.model.__name__].is_m2m:
+                        to_model = fld.rel.model
+                        to_name = fld.rel.name
+                        from_model = model
+                        from_name = fld.name
+                    else:
+                        continue
+                elif hasattr(model, attr) and hasattr(getattr(model, attr), 'related'):
+                    rel = getattr(model, attr).related
+                    if rel.is_relation and not rel.field.many_to_many and \
+                            rel.field.model.__name__ in registered_historical_models and \
+                            not registered_historical_models[rel.field.model.__name__].is_m2m:
+                        from_model = rel.field.model
+                        from_name = rel.field.name
+                        to_model = model
+                        to_name = rel.name
+                    else:
+                        continue
                 else:
                     continue
-                from_model = model
+                to_hist_model = registered_historical_models[to_model.__name__]
+                from_hist_model = registered_historical_models[from_model.__name__]
                 attrs = {
                     u'__module__': from_model.__module__,
                     'history_id': models.AutoField(primary_key=True),
-                    from_model.__name__: models.ForeignKey(to=from_model, related_name='+'),
-                    to_model.__name__: models.ForeignKey(to=to_model, related_name='+'),
+                    from_hist_model.__name__: models.ForeignKey(to=from_hist_model, related_name='+'),
+                    to_hist_model.__name__: models.ForeignKey(to=to_hist_model, related_name='+'),
                     '__str__': lambda self: '%s' % self.__name__
                 }
-                name = '{}_{}_fake'.format(from_model.__name__, to_model.__name__)
+                name = '{}_{}_fake'.format(from_hist_model.__name__, to_hist_model.__name__)
                 historical_model = python_2_unicode_compatible(type(str(name), self.bases, attrs))
-                fake_m2m_models[(from_model, historical_model, attr)] = (to_model, historical_model, to_name)
+                fake_m2m_models[(from_model, historical_model, from_name)] = (to_model, historical_model, to_name)
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
