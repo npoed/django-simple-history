@@ -347,7 +347,17 @@ class HistoricalRecords(object):
                 history_records = registered_historical_models[real_model_name].objects.filter(id=real_record_id)
                 if history_records.exists():
                     attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
+
+        # Смотрим, есть ли наша модель в fake m2m
+            for f_m2m_key, f_m2m_value in fake_m2m_models.items():
+                if f_m2m_key[0] is instance._meta.model:
+                    print 'model'
+                elif f_m2m_value[0] is instance._meta.model:
+                    print 'model'
+
         manager.create(history_date=history_date, history_type=history_type, history_user=history_user, **attrs)
+
+
         if history_type == '+':
             for f_key in instance._meta.related_objects:
                     real_model_name = f_key.related_model.__name__
@@ -373,26 +383,28 @@ class HistoricalRecords(object):
                         not getattr(model, attr).field.many_to_many and \
                         getattr(model, attr).field.rel.model.__name__ in registered_historical_models and \
                         not registered_historical_models[getattr(model, attr).field.rel.model.__name__].is_m2m:
-                    to_model = registered_historical_models[getattr(model, attr).field.rel.model.__name__]
+                    to_model = getattr(model, attr).field.rel.model
+                    to_name = getattr(model, attr).field.rel.name
                 elif hasattr(model, attr) and hasattr(getattr(model, attr), 'related') and \
                         getattr(model, attr).related.is_relation and \
                         not getattr(model, attr).related.field.many_to_many and \
                         getattr(model, attr).related.field.model.__name__ in registered_historical_models and \
                         not registered_historical_models[getattr(model, attr).related.field.model.__name__].is_m2m:
-                    to_model = registered_historical_models[getattr(model, attr).related.field.model.__name__]
+                    to_model = getattr(model, attr).related.field.model
+                    to_name = getattr(model, attr).related.field.name
                 else:
                     continue
-                from_model = registered_historical_models[model.__name__]
+                from_model = model
                 attrs = {
                     u'__module__': from_model.__module__,
                     'history_id': models.AutoField(primary_key=True),
-                    from_model.__name__: models.ForeignKey(to=from_model),
-                    to_model.__name__: models.ForeignKey(to=to_model),
+                    from_model.__name__: models.ForeignKey(to=from_model, related_name='+'),
+                    to_model.__name__: models.ForeignKey(to=to_model, related_name='+'),
                     '__str__': lambda self: '%s' % self.__name__
                 }
                 name = '{}_{}_fake'.format(from_model.__name__, to_model.__name__)
                 historical_model = python_2_unicode_compatible(type(str(name), self.bases, attrs))
-                fake_m2m_models[(from_model, historical_model)] = (to_model, historical_model)
+                fake_m2m_models[(from_model, historical_model, attr)] = (to_model, historical_model, to_name)
 
     def get_history_user(self, instance):
         """Get the modifying user from instance or middleware."""
