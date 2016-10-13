@@ -370,11 +370,15 @@ class HistoricalRecords(object):
             for attr in dir(model):
                 if hasattr(model, attr) and hasattr(getattr(model, attr), 'field') and \
                         getattr(model, attr).field.is_relation and \
-                        getattr(model, attr).field.rel.model.__name__ in registered_historical_models:
+                        not getattr(model, attr).field.many_to_many and \
+                        getattr(model, attr).field.rel.model.__name__ in registered_historical_models and \
+                        not registered_historical_models[getattr(model, attr).field.rel.model.__name__].is_m2m:
                     to_model = registered_historical_models[getattr(model, attr).field.rel.model.__name__]
                 elif hasattr(model, attr) and hasattr(getattr(model, attr), 'related') and \
                         getattr(model, attr).related.is_relation and \
-                        getattr(model, attr).related.field.model.__name__ in registered_historical_models:
+                        not getattr(model, attr).related.field.many_to_many and \
+                        getattr(model, attr).related.field.model.__name__ in registered_historical_models and \
+                        not registered_historical_models[getattr(model, attr).related.field.model.__name__].is_m2m:
                     to_model = registered_historical_models[getattr(model, attr).related.field.model.__name__]
                 else:
                     continue
