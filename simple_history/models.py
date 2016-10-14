@@ -340,14 +340,15 @@ class HistoricalRecords(object):
         attrs = {}
         for field in instance._meta.fields:
             attrs[field.attname] = getattr(instance, field.attname)
-            if isinstance(field, models.ForeignKey):
-                real_model_name = field.rel.to.__name__
-                if real_model_name not in registered_historical_models:
-                    continue
-                real_record_id = getattr(instance, field.attname)
-                history_records = registered_historical_models[real_model_name].objects.filter(id=real_record_id)
-                if history_records.exists():
-                    attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
+            if self.is_m2m:
+                if isinstance(field, models.ForeignKey):
+                    real_model_name = field.rel.to.__name__
+                    if real_model_name not in registered_historical_models:
+                        continue
+                    real_record_id = getattr(instance, field.attname)
+                    history_records = registered_historical_models[real_model_name].objects.filter(id=real_record_id)
+                    if history_records.exists():
+                        attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
 
         manager.create(history_date=history_date, history_type=history_type, history_user=history_user, **attrs)
 
@@ -355,34 +356,35 @@ class HistoricalRecords(object):
         for f_m2m_key, f_m2m_value in fake_m2m_models.items():
             if f_m2m_key[0] is instance._meta.model:
                 to_inst = getattr(instance, f_m2m_key[2])
-                to_hist_inst = registered_historical_models[to_inst._meta.model.__name__].objects.filter(
-                    id=to_inst.id).latest('history_date')
+                to_hist_insts = registered_historical_models[to_inst._meta.model.__name__].objects.filter(
+                    id=to_inst.id)
                 from_hist_items = registered_historical_models[instance._meta.model.__name__].objects.filter(
-                    id=instance.id).order('-history_date')
-                if from_hist_items.count() > 1:
-                    prev_hist_item = from_hist_items[1]
+                    id=instance.id).order_by('-history_date')
+                if to_hist_insts.exists() and from_hist_items.exists():
+                    if from_hist_items.count() > 1:
+                        prev_hist_item = from_hist_items[1]
+                        buf_fake_m2m_attrs = {
+                            registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_insts.latest('history_date'),
+                            registered_historical_models[instance._meta.model.__name__].__name__: prev_hist_item,
+                        }
+                        f_m2m_key[1].objects.filter(**buf_fake_m2m_attrs).delete()
                     buf_fake_m2m_attrs = {
-                        registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_inst,
-                        registered_historical_models[instance._meta.model.__name__].__name__: prev_hist_item,
+                        registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_insts.latest('history_date'),
+                        registered_historical_models[instance._meta.model.__name__].__name__: from_hist_items[0],
                     }
-                    f_m2m_key[1].objects.filter(**buf_fake_m2m_attrs).delete()
-                buf_fake_m2m_attrs = {
-                    registered_historical_models[to_inst._meta.model.__name__].__name__: to_hist_inst,
-                    registered_historical_models[instance._meta.model.__name__].__name__: from_hist_items[0],
-                }
-                f_m2m_key[1](**buf_fake_m2m_attrs).save()
+                    f_m2m_key[1](**buf_fake_m2m_attrs).save()
 
             elif f_m2m_value[0] is instance._meta.model:
                 for from_inst in getattr(instance, f_m2m_value[2]).all():
                     fake_m2m_model = f_m2m_value[1]
                     from_hist_model = registered_historical_models[f_m2m_key[0].__name__]
                     to_hist_model = registered_historical_models[f_m2m_value[0].__name__]
-                    to_hist_inst = from_hist_model.objects.filter(id=instance.id).latest('history_date')
-                    from_hist_inst = to_hist_model.objects.filter(id=from_inst.id).latest('history_date')
-                    if from_hist_inst and to_hist_inst:
+                    to_hist_insts = from_hist_model.objects.filter(id=instance.id)
+                    from_hist_insts = to_hist_model.objects.filter(id=from_inst.id)
+                    if from_hist_insts and to_hist_insts:
                         fake_m2m_attrs = {
-                            from_hist_model.__name__: from_hist_inst,
-                            to_hist_model.__name__: to_hist_inst,
+                            from_hist_model.__name__: from_hist_insts.latest('history_date'),
+                            to_hist_model.__name__: to_hist_insts.latest('history_date'),
                         }
                         fake_m2m_model(**fake_m2m_attrs).save()
 
@@ -400,7 +402,8 @@ class HistoricalRecords(object):
             for m2m in instance._meta.many_to_many:
                 if m2m.related_model.__name__ in registered_historical_models:
                     for q in getattr(instance, m2m.name).all():
-                        if not registered_historical_models[m2m.related_model.__name__].objects.filter(id=q.id).exists():
+                        if not registered_historical_models[m2m.related_model.__name__].objects.filter(
+                            id=q.id).exists():
                             self.create_historical_record(q, '~')
 
     def create_fake_m2m(self, model):
@@ -412,7 +415,12 @@ class HistoricalRecords(object):
                             fld.rel.model.__name__ in registered_historical_models and \
                             not registered_historical_models[fld.rel.model.__name__].is_m2m:
                         to_model = fld.rel.model
-                        to_name = fld.rel.name
+                        if fld.rel.related_name == '+':
+                            continue
+                        if fld.rel.related_name is not None:
+                            to_name = fld.rel.related_name
+                        else:
+                            to_name = '{}_set'.format(fld.rel.name)
                         from_model = model
                         from_name = fld.name
                     else:
