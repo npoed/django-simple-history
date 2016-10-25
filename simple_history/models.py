@@ -350,6 +350,17 @@ class HistoricalRecords(object):
                     if history_records.exists():
                         attrs['history_{}'.format(real_model_name)] = history_records.latest('history_date')
 
+        if registered_historical_models[instance._meta.model.__name__].is_m2m:
+            query_list = []
+            real_field_names = [f.name for f in instance._meta.fields]
+            for field in registered_historical_models[instance._meta.model.__name__]._meta.fields:
+                if isinstance(field, models.ForeignKey) and field.name not in real_field_names and \
+                        field.name != 'history_user':
+                    query_list.append(Q(**{field.name: attrs[field.name]}))
+                query = reduce(lambda x, y: x & y, query_list, Q())
+            if registered_historical_models[instance._meta.model.__name__].objects.filter(query).exists():
+                return
+
         manager.create(history_date=history_date, history_type=history_type, history_user=history_user, **attrs)
 
         if registered_historical_models[instance._meta.model.__name__].is_m2m:
