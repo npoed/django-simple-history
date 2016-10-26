@@ -123,8 +123,8 @@ class HistoricalRecords(object):
 
         # The HistoricalRecords object will be discarded,
         # so the signal handlers can't use weak references.
-        models.signals.pre_save.connect(self.pre_save, sender=sender,
-                                        weak=False)
+        # models.signals.pre_save.connect(self.pre_save, sender=sender,
+        #                                 weak=False)
         models.signals.post_save.connect(self.post_save, sender=sender,
                                          weak=False)
         models.signals.post_delete.connect(self.post_delete, sender=sender,
@@ -366,23 +366,23 @@ class HistoricalRecords(object):
         if registered_historical_models[instance._meta.model.__name__].is_m2m:
             return
 
-        if history_type == '+':
-            for f_key in instance._meta.related_objects:
-                real_model_name = f_key.related_model.__name__
-                if real_model_name not in registered_historical_models:
-                    continue
-                # Выбираем объекты, ссылающиеся на данную модель
-                q_dict = {f_key.field.name: instance}
-                query = f_key.related_model.objects.all().filter(**q_dict)
-                for q in query:
-                    if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
-                        self.create_historical_record(q, '+')
-            for m2m in instance._meta.many_to_many:
-                if m2m.related_model.__name__ in registered_historical_models:
-                    for q in getattr(instance, m2m.name).all():
-                        if not registered_historical_models[m2m.related_model.__name__].objects.filter(
-                            id=q.id).exists():
-                            self.create_historical_record(q, '+')
+        # if history_type == '+':
+        #     for f_key in instance._meta.related_objects:
+        #         real_model_name = f_key.related_model.__name__
+        #         if real_model_name not in registered_historical_models:
+        #             continue
+        #         # Выбираем объекты, ссылающиеся на данную модель
+        #         q_dict = {f_key.field.name: instance}
+        #         query = f_key.related_model.objects.all().filter(**q_dict)
+        #         for q in query:
+        #             if not registered_historical_models[real_model_name].objects.all().filter(id=q.id).exists():
+        #                 self.create_historical_record(q, '+')
+        #     for m2m in instance._meta.many_to_many:
+        #         if m2m.related_model.__name__ in registered_historical_models:
+        #             for q in getattr(instance, m2m.name).all():
+        #                 if not registered_historical_models[m2m.related_model.__name__].objects.filter(
+        #                     id=q.id).exists():
+        #                     self.create_historical_record(q, '+')
 
         # Смотрим, есть ли наша модель в fake m2m
         for f_m2m_key, f_m2m_value in fake_m2m_models.items():
@@ -452,7 +452,7 @@ class HistoricalRecords(object):
                         from_model = rel.field.model
                         from_name = rel.field.name
                         to_model = model
-                        to_name = rel.name
+                        to_name = attr
                     else:
                         continue
                 else:
