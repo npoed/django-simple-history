@@ -312,12 +312,12 @@ class HistoricalRecords(object):
         source_field_name, target_field_name = None, None
         for field_name, field_value in sender.__dict__.items():
             if isinstance(field_value, models.fields.related.ReverseSingleRelatedObjectDescriptor):
-                if field_value.field.related.model == kwargs['model']:
+                if field_value.field.related.model == kwargs.get('model'):
                     target_field_name = field_name
                 elif field_value.field.related.model == type(instance):
                     source_field_name = field_name
         items = sender.objects.filter(**{source_field_name: instance})
-        if kwargs['pk_set']:
+        if kwargs.get('pk_set'):
             items = items.filter(**{target_field_name + '__id__in': kwargs['pk_set']})
         for item in items:
             if action == 'post_add':
