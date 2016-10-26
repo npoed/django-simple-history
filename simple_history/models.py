@@ -312,7 +312,7 @@ class HistoricalRecords(object):
         source_field_name, target_field_name = None, None
         for field_name, field_value in sender.__dict__.items():
             if isinstance(field_value, models.fields.related.ReverseSingleRelatedObjectDescriptor):
-                if field_value.field.related.model == kwargs.get('model'):
+                if field_value.field.related.model == kwargs['model']:
                     target_field_name = field_name
                 elif field_value.field.related.model == type(instance):
                     source_field_name = field_name
@@ -483,22 +483,31 @@ class HistoricalRecords(object):
                 return None
 
     def remove_historical_record(self, item):
-        query_list = []
-        for field in item._meta.fields:
-            if isinstance(field, models.ForeignKey):
-                real_model_name = field.rel.to.__name__
-                if real_model_name not in registered_historical_models:
-                    return
-                historical_rel_instances = registered_historical_models[real_model_name].objects.filter(
-                    id=getattr(item, field.attname))
-                if historical_rel_instances.exists():
-                    query_list.append(
-                        Q(**{'history_{}'.format(real_model_name): historical_rel_instances.latest('history_date')}))
-        query = reduce(lambda x, y: x & y, query_list, Q())
-        res_query = registered_historical_models[item._meta.model.__name__].objects.filter(query)
-        if res_query.exists():
-            res_query.delete()
-
+        if self.is_m2m:
+            query_list = []
+            for field in item._meta.fields:
+                if isinstance(field, models.ForeignKey):
+                    real_model_name = field.rel.to.__name__
+                    if real_model_name not in registered_historical_models:
+                        return
+                    historical_rel_instances = registered_historical_models[real_model_name].objects.filter(
+                        id=getattr(item, field.attname))
+                    if historical_rel_instances.exists():
+                        query_list.append(
+                            Q(**{'history_{}'.format(real_model_name): historical_rel_instances.latest('history_date')}))
+            query = reduce(lambda x, y: x & y, query_list, Q())
+            res_query = registered_historical_models[item._meta.model.__name__].objects.filter(query)
+            if res_query.exists():
+                res_query.delete()
+        else:
+            history_model = registered_historical_models[item._meta.model.__name__]
+            last_history_item = history_model.objects.filter(id=item.id)\
+                .latest('history_date')
+            for f_m2m_key, f_m2m_value in fake_m2m_models.items():
+                if f_m2m_key[0] is item._meta.model or f_m2m_value[0] is item._meta.model:
+                    res = f_m2m_key[1].objects.filter(**{history_model.__name__: last_history_item})
+                    if res.exists():
+                        res.delete()
 
 def transform_field(field):
     """Customize field appropriately for use in historical model"""
