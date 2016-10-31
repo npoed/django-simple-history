@@ -504,10 +504,27 @@ class HistoricalRecords(object):
             last_history_item = history_model.objects.filter(id=item.id)\
                 .latest('history_date')
             for f_m2m_key, f_m2m_value in fake_m2m_models.items():
-                if f_m2m_key[0] is item._meta.model or f_m2m_value[0] is item._meta.model:
+                buf = []
+                if f_m2m_key[0] is item._meta.model:
                     res = f_m2m_key[1].objects.filter(**{history_model.__name__: last_history_item})
-                    if res.exists():
-                        res.delete()
+                    for itm in res:
+                        another_model = registered_historical_models[f_m2m_value[0].__name__]
+                        another_item = getattr(itm, another_model.__name__)
+                        another_latest_instance = another_model.objects.filter(**{'id': another_item.id}).latest('history_date')
+                        if another_latest_instance == another_item:
+                            buf.append(itm)
+                elif f_m2m_value[0] is item._meta.model:
+                    res = f_m2m_value[1].objects.filter(**{history_model.__name__: last_history_item})
+                    for itm in res:
+                        another_model = registered_historical_models[f_m2m_key[0].__name__]
+                        another_item = getattr(itm, another_model.__name__)
+                        another_latest_instance = another_model.objects.filter(**{'id': another_item.id}).latest(
+                            'history_date')
+                        if another_latest_instance == another_item:
+                            buf.append(itm)
+                for bf in range(len(buf)):
+                    buf[bf].delete()
+
 
 def transform_field(field):
     """Customize field appropriately for use in historical model"""
