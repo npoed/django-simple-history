@@ -483,7 +483,7 @@ class HistoricalRecords(object):
                 return None
 
     def remove_historical_record(self, item):
-        if self.is_m2m:
+        if registered_historical_models[item._meta.model.__name__]:
             query_list = []
             for field in item._meta.fields:
                 if isinstance(field, models.ForeignKey):
