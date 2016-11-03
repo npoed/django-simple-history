@@ -384,6 +384,10 @@ class HistoricalRecords(object):
         #                     id=q.id).exists():
         #                     self.create_historical_record(q, '+')
 
+        # Посылаем сигнал m2m change всем связям m2m, что бы обновить изменения
+        for rel in instance._meta.related_objects:
+            if rel.many_to_many and rel.through.__name__ in registered_historical_models and registered_historical_models[rel.through.__name__].is_m2m:
+                models.signals.m2m_changed.send(rel.through, instance=instance, model=rel.related_model, action='post_add')
         # Смотрим, есть ли наша модель в fake m2m
         for f_m2m_key, f_m2m_value in fake_m2m_models.items():
             if f_m2m_key[0] is instance._meta.model:
